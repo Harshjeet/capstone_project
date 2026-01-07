@@ -1,0 +1,24 @@
+[
+  {
+    "resourceType": "Patient",
+    "id": "p001",
+    "name": [
+      {
+        "text": "John Doe"
+      }
+    ],
+    "gender": "male",
+    "birthDate": "1975-01-01"
+  },
+  {
+    "resourceType": "Patient",
+    "id": "p002",
+    "name": [
+      {
+        "text": "Jane Smith"
+      }
+    ],
+    "gender": "female",
+    "birthDate": "1982-05-15"
+  }
+]
