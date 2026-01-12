@@ -1,8 +1,9 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from models.insurance_plan_model import InsurancePlanModel
-from models.models import PatientModel
+from models.models import PatientModel, UserModel
 from config import db
+from utils.logger import logger
 
 admin_bp = Blueprint('admin', __name__)
 plan_model = InsurancePlanModel()
@@ -39,6 +40,7 @@ def create_plan():
     data = request.json
     try:
         new_id = plan_model.create(data)
+        logger.info(f"Admin {get_jwt_identity()} created plan: {data.get('name')} (ID: {new_id})")
         return jsonify({"id": str(new_id), "message": "Plan created successfully"}), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -52,6 +54,7 @@ def update_plan(plan_id):
 
     data = request.json
     if plan_model.update(plan_id, data):
+        logger.info(f"Admin {get_jwt_identity()} updated plan {plan_id}")
         return jsonify({"message": "Plan updated successfully"}), 200
     return jsonify({"error": "Plan not found or update failed"}), 404
 
@@ -63,6 +66,7 @@ def delete_plan(plan_id):
         return jsonify({"error": "Admin access required"}), 403
 
     if plan_model.delete(plan_id):
+        logger.warning(f"Admin {get_jwt_identity()} deleted plan {plan_id}")
         return jsonify({"message": "Plan deleted successfully"}), 200
     return jsonify({"error": "Plan not found"}), 404
 
@@ -75,23 +79,41 @@ def get_all_patients():
     if claims.get("role") != "admin":
         return jsonify({"error": "Admin access required"}), 403
         
-    patients = patient_model.find_all()
+    page = int(request.args.get('page', 1))
+    limit = int(request.args.get('limit', 15))
+    search = request.args.get('search', None)
+    
+    patients, total_count = patient_model.find_paginated(page, limit, search)
+    
     # Format for listing
     result = []
     for p in patients:
-        # Use custom FHIR 'id' as the primary identifier for frontend mapping
-        # and clinical data linking. Fallback to stringified _id.
         p_id = p.get("id") or str(p["_id"])
         
+        # Name fallback logic
+        name_obj = p.get('name', [{}])[0]
+        given = name_obj.get('given', [])
+        family = name_obj.get('family', '')
+        name_text = name_obj.get('text', '')
+        
+        display_name = f"{' '.join(given)} {family}".strip()
+        if not display_name:
+            display_name = name_text or "Unknown"
+
         result.append({
             "id": p_id,
-            "name": f"{' '.join(p.get('name', [{}])[0].get('given', []))} {p.get('name', [{}])[0].get('family', '')}".strip() or "Unknown",
+            "name": display_name,
             "gender": p.get("gender"),
             "birthDate": p.get("birthDate"),
             "address": p.get("address", [{}])[0].get("text", "")
         })
         
-    return jsonify(result)
+    return jsonify({
+        "data": result,
+        "total": total_count,
+        "page": page,
+        "total_pages": (total_count + limit - 1) // limit
+    })
 
 # --- Analytics / Logs (Placeholder) ---
 
@@ -224,9 +246,13 @@ def get_all_users():
     if claims.get("role") != "admin":
         return jsonify({"error": "Admin access required"}), 403
     
+    page = int(request.args.get('page', 1))
+    limit = int(request.args.get('limit', 15))
+    search = request.args.get('search', None)
+    
     from models.models import UserModel
     user_model = UserModel()
-    users = user_model.find_all()
+    users, total_count = user_model.find_paginated(page, limit, search)
     
     result = []
     for user in users:
@@ -241,7 +267,12 @@ def get_all_users():
         }
         result.append(user_data)
     
-    return jsonify(result)
+    return jsonify({
+        "data": result,
+        "total": total_count,
+        "page": page,
+        "total_pages": (total_count + limit - 1) // limit
+    })
 
 @admin_bp.route('/users/<user_id>', methods=['DELETE'])
 @jwt_required()
@@ -354,3 +385,52 @@ def get_all_consents():
         item['id'] = str(item['_id'])
         del item['_id']
     return jsonify(data)
+
+@admin_bp.route('/system/logs', methods=['GET'])
+@jwt_required()
+def get_system_logs():
+    claims = get_jwt()
+    if claims.get("role") != "admin":
+        return jsonify({"error": "Admin access required"}), 403
+    
+    log_path = os.path.join(os.path.dirname(__file__), '..', 'backend.log')
+    try:
+        if not os.path.exists(log_path):
+            return jsonify([])
+        
+        with open(log_path, 'r') as f:
+            # Read last 100 lines for efficiency
+            lines = f.readlines()
+            last_lines = lines[-100:] if len(lines) > 100 else lines
+            
+        logs = []
+        for line in last_lines:
+            # Simple parsing: [2026-01-12 13:02:53,047] WARNING in api_controller: ...
+            if line.startswith('['):
+                try:
+                    parts = line.split('] ', 1)
+                    timestamp = parts[0][1:]
+                    rest = parts[1].split(' in ', 1)
+                    level = rest[0]
+                    module_msg = rest[1].split(': ', 1)
+                    module = module_msg[0]
+                    message = module_msg[1].strip()
+                    
+                    logs.append({
+                        "timestamp": timestamp,
+                        "level": level,
+                        "module": module,
+                        "message": message
+                    })
+                except:
+                    logs.append({"raw": line.strip()})
+            else:
+                if logs and "raw" not in logs[-1]:
+                    logs[-1]["message"] += f"\n{line.strip()}"
+                else:
+                    logs.append({"raw": line.strip()})
+                    
+        return jsonify(logs[::-1]) # Return newest first
+    except Exception as e:
+        logger.error(f"Error reading logs: {str(e)}")
+        return jsonify({"error": str(e)}), 500

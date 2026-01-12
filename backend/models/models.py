@@ -25,6 +25,16 @@ class PatientModel:
     def find_all(self):
         return list(self.collection.find())
 
+    def find_paginated(self, page, limit, search=None):
+        skip = (page - 1) * limit
+        query = {"resourceType": "Patient"}
+        if search:
+            query["name.text"] = {"$regex": search, "$options": "i"}
+        
+        items = list(self.collection.find(query).skip(skip).limit(limit))
+        total = self.collection.count_documents(query)
+        return items, total
+
     def find_by_id(self, id):
         # Try finding by ObjectId first
         try:
@@ -107,14 +117,27 @@ class ConditionModel:
 
     def find_by_patient(self, patient_id, status=None):
         # Support both 'Patient/ID' and 'ID' formats
-        queries = [
-            {"subject.reference": f"Patient/{patient_id}"},
-            {"subject.reference": patient_id}
+        patient_refs = [
+            f"Patient/{patient_id}",
+            str(patient_id),
+            patient_id.replace("Patient/", "") if isinstance(patient_id, str) and patient_id.startswith("Patient/") else patient_id
         ]
-        base_query = {"$or": queries}
+        
+        query = {"subject.reference": {"$in": patient_refs}}
+        
         if status:
-            base_query["clinicalStatus.text"] = status
-        return list(self.collection.find(base_query))
+            status_regex = {"$regex": f"^{status}$", "$options": "i"}
+            # Condition specific status fields
+            query = {
+                "$and": [
+                    {"subject.reference": {"$in": patient_refs}},
+                    {"$or": [
+                        {"clinicalStatus.text": status_regex},
+                        {"clinicalStatus.coding.code": status_regex}
+                    ]}
+                ]
+            }
+        return list(self.collection.find(query))
 
     def find_all(self):
         return list(self.collection.find())
@@ -160,14 +183,22 @@ class ObservationModel:
 
     def find_by_patient(self, patient_id, status=None):
          # Support both 'Patient/ID' and 'ID' formats
-        queries = [
-            {"subject.reference": f"Patient/{patient_id}"},
-            {"subject.reference": patient_id}
+        patient_refs = [
+            f"Patient/{patient_id}",
+            str(patient_id),
+            patient_id.replace("Patient/", "") if isinstance(patient_id, str) and patient_id.startswith("Patient/") else patient_id
         ]
-        base_query = {"$or": queries}
+        
+        query = {"subject.reference": {"$in": patient_refs}}
+        
         if status:
-            base_query["status"] = status
-        return list(self.collection.find(base_query))
+            query = {
+                "$and": [
+                    {"subject.reference": {"$in": patient_refs}},
+                    {"status": {"$regex": f"^{status}$", "$options": "i"}}
+                ]
+            }
+        return list(self.collection.find(query))
 
     def find_all(self):
         return list(self.collection.find())
@@ -205,14 +236,22 @@ class MedicationModel:
 
     def find_by_patient(self, patient_id, status=None):
         # Support both 'Patient/ID' and 'ID' formats
-        queries = [
-            {"subject.reference": f"Patient/{patient_id}"},
-            {"subject.reference": patient_id}
+        patient_refs = [
+            f"Patient/{patient_id}",
+            str(patient_id),
+            patient_id.replace("Patient/", "") if isinstance(patient_id, str) and patient_id.startswith("Patient/") else patient_id
         ]
-        base_query = {"$or": queries}
+        
+        query = {"subject.reference": {"$in": patient_refs}}
+        
         if status:
-            base_query["status"] = status
-        return list(self.collection.find(base_query))
+            query = {
+                "$and": [
+                    {"subject.reference": {"$in": patient_refs}},
+                    {"status": {"$regex": f"^{status}$", "$options": "i"}}
+                ]
+            }
+        return list(self.collection.find(query))
 
     def find_all(self):
         return list(self.collection.find())
@@ -245,6 +284,19 @@ class UserModel:
 
     def find_all(self):
         return list(self.collection.find())
+
+    def find_paginated(self, page, limit, search=None):
+        skip = (page - 1) * limit
+        query = {}
+        if search:
+            query["$or"] = [
+                {"username": {"$regex": search, "$options": "i"}},
+                {"name": {"$regex": search, "$options": "i"}}
+            ]
+        
+        items = list(self.collection.find(query).skip(skip).limit(limit))
+        total = self.collection.count_documents(query)
+        return items, total
 
     def find_by_username(self, username):
         return self.collection.find_one({"username": username})

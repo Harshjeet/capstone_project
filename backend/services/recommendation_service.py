@@ -2,6 +2,7 @@
 # Health Plan Definitions and Rules
 
 from models.insurance_plan_model import InsurancePlanModel
+from utils.logger import logger
 
 # Default plans for fallback/seeding
 DEFAULT_PLANS = [
@@ -72,6 +73,7 @@ def recommend_plan(conditions):
     Logic: Find the cheapest plan that covers ALL the patient's conditions.
     """
     plans = get_all_plans()
+    logger.info(f"Recommending plan for {len(conditions)} conditions.")
     
     # Sort plans by cost to ensure we find cheapest first
     # Assuming 'cost' is present.
@@ -96,6 +98,7 @@ def recommend_plan(conditions):
                 covered_count += 1
         
         if covered_count == len(condition_names):
+            logger.info(f"Match found: {plan.get('name')}")
             return plan
 
     # Default to most expensive if nothing else fits
@@ -140,6 +143,7 @@ def find_similar_patients(target_patient_id):
         except: pass
         
     # 2. Find Candidates (Filter by Gender first for speed)
+    logger.info(f"Finding similar patients for {target_patient_id} ({target_age}y, {target_gender})")
     # 2. Optimized Candidate Fetch
     candidates = list(patient_model.collection.find({"gender": target_gender}))
     candidate_ids = [c.get("id") for c in candidates if c.get("id")]
@@ -193,6 +197,7 @@ def find_similar_patients(target_patient_id):
                 "reasons": reasons
             })
             
+    logger.info(f"Found {len(scored_candidates)} candidates, returning top 5.")
     return sorted(scored_candidates, key=lambda x: x["similarity_score"], reverse=True)[:5]
 
 
