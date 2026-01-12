@@ -6,89 +6,97 @@ risk_model = RiskAssessmentModel()
 observation_model = ObservationModel()
 medication_model = MedicationModel()
 
-def calculate_risk_score(patient, conditions):
+def calculate_risk_score(patient, conditions, weights=None):
     """
-    Calculates a rule-based risk score:
-    - Age score (max 30)
-    - Condition score (max 40)
-    - Observation score (max 20)
-    - Medication score (max 10)
+    Calculates a rule-based risk score with customizable weights.
+    Default Weights:
+    - Age score: 30
+    - Condition score: 40
+    - Observation score: 20
+    - Medication score: 10
+    """
+    if not weights:
+        weights = {
+            "age": 30,
+            "conditions": 40,
+            "observations": 20,
+            "medications": 10
+        }
     
-    Total score mapped to:
-    - 0–30 → LOW
-    - 31–60 → MEDIUM
-    - 61–100 → HIGH
-    """
     score = 0
     details = []
     
-    # 1. Age Score (Max 30)
+    # 1. Age Score
     birth_date = patient.get("birthDate")
-    age = 0
+    age_component = 0
     if birth_date:
         try:
-            dob = datetime.strptime(birth_date, "%Y-%m-%d")
+            if isinstance(birth_date, str):
+                dob = datetime.strptime(birth_date, "%Y-%m-%d")
+            else:
+                dob = birth_date
+            
             age = (datetime.now() - dob).days // 365
             
-            age_score = 0
-            if age > 60: age_score = 30
-            elif age > 45: age_score = 20
-            elif age > 30: age_score = 10
-            else: age_score = 5
+            factor = 0
+            if age > 60: factor = 1.0
+            elif age > 45: factor = 0.66
+            elif age > 30: factor = 0.33
+            else: factor = 0.16
             
-            score += age_score
-            details.append(f"Age {age}: +{age_score}")
+            age_component = factor * weights.get("age", 30)
+            score += age_component
+            details.append(f"Age {age}: +{round(age_component, 1)}")
         except:
-            pass # Invalid date
+            pass 
 
-    # 2. Condition Score (Max 40)
-    # High risk keywords
+    # 2. Condition Score
     high_risk = ["diabetes", "hypertension", "heart", "cancer", "stroke", "asthma"]
-    cond_score = 0
+    cond_raw_score = 0
     for condition in conditions:
         text = condition.get("code", {}).get("text", "").lower()
         if any(hr in text for hr in high_risk):
-            cond_score += 15
+            cond_raw_score += 1.0
         else:
-            cond_score += 5
+            cond_raw_score += 0.3
             
-    # Cap at 40
-    if cond_score > 40: cond_score = 40
-    score += cond_score
-    details.append(f"Conditions: +{cond_score}")
+    # Comorbidity Bonus
+    if len(conditions) > 1:
+        cond_raw_score += 0.5
+        details.append("Comorbidity Bonus: +7.5")
+            
+    cond_component = min(cond_raw_score * 15, weights.get("conditions", 40))
+    score += cond_component
+    details.append(f"Conditions: +{round(cond_component, 1)}")
 
-    # 3. Observation Score (Max 20)
-    # Check for recent bad vitals
-    patient_id = str(patient.get("_id")) if "_id" in patient else patient.get("id")
+    # 3. Observation Score
+    patient_id = patient.get("id") or (str(patient.get("_id")) if "_id" in patient else None)
     observations = observation_model.find_by_patient(patient_id)
-    obs_score = 0
+    obs_raw_score = 0
     
     for obs in observations:
         text = obs.get("code", {}).get("text", "").lower()
-        val = obs.get("valueQuantity", {}).get("value", 0)
+        val_obj = obs.get("valueQuantity", {})
+        val = val_obj.get("value", 0) if isinstance(val_obj, dict) else 0
         
-        # BP > 140
         if ("blood pressure" in text or "systolic" in text) and val > 140:
-            obs_score += 10
-        # Sugar > 180
+            obs_raw_score += 0.5
         elif ("glucose" in text or "sugar" in text) and val > 180:
-            obs_score += 10
+            obs_raw_score += 0.5
             
-    if obs_score > 20: obs_score = 20
-    score += obs_score
-    details.append(f"Vitals: +{obs_score}")
+    obs_component = min(obs_raw_score * 20, weights.get("observations", 20))
+    score += obs_component
+    details.append(f"Vitals: +{round(obs_component, 1)}")
 
-    # 4. Medication Score (Max 10)
-    # More meds = higher complexity/risk
+    # 4. Medication Score
     meds = medication_model.find_by_patient(patient_id)
-    med_score = min(len(meds) * 5, 10)
-    score += med_score
-    details.append(f"Meds ({len(meds)}): +{med_score}")
+    med_raw_score = len(meds) * 0.5
+    med_component = min(med_raw_score * 10, weights.get("medications", 10))
+    score += med_component
+    details.append(f"Meds ({len(meds)}): +{round(med_component, 1)}")
     
-    # Clip Total Score to 100
     if score > 100: score = 100
 
-    # Determine Label
     if score <= 30:
         label = "Low"
     elif score <= 60:
@@ -96,7 +104,6 @@ def calculate_risk_score(patient, conditions):
     else:
         label = "High"
     
-    # Save RiskAssessment
     risk_assessment = {
         "resourceType": "RiskAssessment",
         "status": "final",
@@ -111,13 +118,16 @@ def calculate_risk_score(patient, conditions):
                     "display": label
                 }]
             },
-            "probabilityDecimal": score
+            "probabilityDecimal": round(score, 1)
         }],
         "note": [{"text": " | ".join(details)}]
     }
     
-    inserted_id = risk_model.create(risk_assessment)
-    risk_assessment["id"] = str(inserted_id)
-    if "_id" in risk_assessment: del risk_assessment["_id"]
+    # Save RiskAssessment ONLY if default weights are used
+    is_default = weights == {"age": 30, "conditions": 40, "observations": 20, "medications": 10}
+    if is_default:
+        inserted_id = risk_model.create(risk_assessment)
+        risk_assessment["id"] = str(inserted_id)
+        if "_id" in risk_assessment: del risk_assessment["_id"]
     
     return risk_assessment
