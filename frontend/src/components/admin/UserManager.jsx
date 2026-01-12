@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Search, Trash2, ShieldCheck, Mail, Key } from 'lucide-react';
+import { Search, Trash2, ShieldCheck, Mail, Key, Eye, Clipboard, X } from 'lucide-react';
 
 const UserManager = () => {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [selectedFhir, setSelectedFhir] = useState(null);
+    const [fhirModalOpen, setFhirModalOpen] = useState(false);
+    const [fetchingFhir, setFetchingFhir] = useState(false);
 
     useEffect(() => {
         const fetchUsers = async () => {
@@ -33,6 +36,25 @@ const UserManager = () => {
             console.error("Error deleting user:", error);
             alert("Failed to delete user. Please try again.");
         }
+    };
+
+    const handleViewFhir = async (patientId) => {
+        setFetchingFhir(true);
+        try {
+            const res = await axios.get(`/admin/patients/${patientId}/fhir`);
+            setSelectedFhir(res.data);
+            setFhirModalOpen(true);
+        } catch (error) {
+            console.error("Error fetching FHIR data:", error);
+            alert("Failed to fetch FHIR data. Please ensure the patient exists and you have admin access.");
+        } finally {
+            setFetchingFhir(false);
+        }
+    };
+
+    const copyToClipboard = (text) => {
+        navigator.clipboard.writeText(text);
+        alert("JSON copied to clipboard!");
     };
 
     const getRoleBadgeStyle = (role) => {
@@ -249,11 +271,23 @@ const UserManager = () => {
                                                 <Key size={12} />
                                                 <span>ID: {user.patientId.slice(-8)}</span>
                                             </div>
-                                            {user.insurancePlan && (
-                                                <div style={{ color: 'var(--text-muted)' }}>
-                                                    Plan: {user.insurancePlan}
-                                                </div>
-                                            )}
+                                            <button
+                                                onClick={() => handleViewFhir(user.patientId)}
+                                                className="btn btn-outline"
+                                                style={{
+                                                    padding: '0.2rem 0.5rem',
+                                                    fontSize: '0.7rem',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '0.3rem',
+                                                    marginTop: '0.5rem',
+                                                    height: 'auto'
+                                                }}
+                                                disabled={fetchingFhir}
+                                            >
+                                                <Eye size={12} />
+                                                {fetchingFhir ? 'Loading...' : 'View FHIR'}
+                                            </button>
                                         </div>
                                     ) : (
                                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No patient data</span>
@@ -292,6 +326,63 @@ const UserManager = () => {
                     </tbody>
                 </table>
             </div>
+
+            {/* FHIR Modal */}
+            {fhirModalOpen && selectedFhir && (
+                <div className="modal-overlay" style={{ zIndex: 1000 }}>
+                    <div className="modal-content" style={{ maxWidth: '800px', width: '90%' }}>
+                        <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                <ShieldCheck size={24} color="var(--primary)" />
+                                <div>
+                                    <h3 style={{ margin: 0 }}>FHIR Data Resource</h3>
+                                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                        Raw JSON Bundle for Patient: {selectedFhir.entry?.[0]?.resource?.name?.[0]?.text || 'N/A'}
+                                    </p>
+                                </div>
+                            </div>
+                            <button className="btn-icon" onClick={() => setFhirModalOpen(false)}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="modal-body" style={{ padding: '1rem' }}>
+                            <div style={{
+                                backgroundColor: '#1e293b',
+                                color: '#f8fafc',
+                                padding: '1rem',
+                                borderRadius: '8px',
+                                overflow: 'auto',
+                                maxHeight: '500px',
+                                position: 'relative'
+                            }}>
+                                <button
+                                    onClick={() => copyToClipboard(JSON.stringify(selectedFhir, null, 2))}
+                                    style={{
+                                        position: 'absolute',
+                                        top: '0.5rem',
+                                        right: '0.5rem',
+                                        background: 'rgba(255,255,255,0.1)',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        color: 'white',
+                                        padding: '0.4rem',
+                                        cursor: 'pointer'
+                                    }}
+                                    title="Copy to Clipboard"
+                                >
+                                    <Clipboard size={16} />
+                                </button>
+                                <pre style={{ margin: 0, fontSize: '0.85rem' }}>
+                                    {JSON.stringify(selectedFhir, null, 2)}
+                                </pre>
+                            </div>
+                        </div>
+                        <div className="modal-footer">
+                            <button className="btn btn-secondary" onClick={() => setFhirModalOpen(false)}>Close</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
