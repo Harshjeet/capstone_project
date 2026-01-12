@@ -1,5 +1,7 @@
 from models.models import PatientModel, ConditionModel, ObservationModel, MedicationModel
 from datetime import datetime
+from utils.logger import logger
+import time
 
 class AnalyticsService:
     def __init__(self):
@@ -7,6 +9,7 @@ class AnalyticsService:
         self.condition_model = ConditionModel()
         self.observation_model = ObservationModel()
         self.medication_model = MedicationModel()
+        logger.info("AnalyticsService initialized")
 
     def _calculate_age(self, dob_str):
         if not dob_str:
@@ -31,8 +34,10 @@ class AnalyticsService:
         - Group all condition records by disease name
         - Count number of patients per disease
         """
+        start_time = time.time()
         conditions = self.condition_model.find_all()
         distribution = {}
+        logger.info(f"Disease Distribution: Processing {len(conditions)} records.")
         
         for condition in conditions:
             # Check for active status if available, optionally. 
@@ -42,7 +47,9 @@ class AnalyticsService:
             code_text = condition.get("code", {}).get("text", "Unknown Condition")
             distribution[code_text] = distribution.get(code_text, 0) + 1
             
-        return [{"disease": k, "count": v} for k, v in distribution.items()]
+        res = [{"disease": k, "count": v} for k, v in distribution.items()]
+        logger.info(f"Disease Distribution complete in {round(time.time() - start_time, 3)}s")
+        return res
 
     def get_disease_trends_by_age(self):
         """
@@ -51,6 +58,7 @@ class AnalyticsService:
         - Map patient age to conditions
         - Group by disease + age group
         """
+        start_time = time.time()
         conditions = self.condition_model.find_all()
         # Cache patients to avoid N+1 DB calls if possible, or fetch as needed.
         # For this scale, finding by ID is okay, or fetching all patients once.
@@ -84,6 +92,7 @@ class AnalyticsService:
                 "age_group": age_group,
                 "count": count
             })
+        logger.info(f"Disease Trends by Age complete in {round(time.time() - start_time, 3)}s")
         return result
 
     def get_disease_trends_by_location(self):
@@ -93,6 +102,7 @@ class AnalyticsService:
         - Map diseases to patient city
         - Group by disease + location
         """
+        start_time = time.time()
         conditions = self.condition_model.find_all()
         patients = {}
         for p in self.patient_model.find_all():
@@ -117,8 +127,10 @@ class AnalyticsService:
             disease = condition.get("code", {}).get("text", "Unknown")
             key = (disease, city)
             data[key] = data.get(key, 0) + 1
-            
-        return [{"disease": d, "location": l, "count": c} for (d, l), c in data.items()]
+        
+        res = [{"disease": d, "location": l, "count": c} for (d, l), c in data.items()]
+        logger.info(f"Disease Trends by Location complete in {round(time.time() - start_time, 3)}s")
+        return res
 
     def get_vital_analytics(self):
         """
@@ -256,11 +268,17 @@ class AnalyticsService:
     def get_chronic_vs_acute_analytics(self):
         """
         8) Chronic vs Acute
+        Strictly binary classification: everything is either Chronic or Acute.
         """
-        CHRONIC_LIST = ["Diabetes", "Hypertension", "Heart Disease", "Asthma", "Arthritis"]
-        ACUTE_LIST = ["Cold", "Fever", "Infection", "Flu", "Fracture"]
+        CHRONIC_INDICATORS = [
+            "diabetes", "hypertension", "heart", "asthma", "arthritis", 
+            "chronic", "alzheimer", "parkinson", "bipolar", "schizophrenia", 
+            "ptsd", "obesity", "thyroid", "osteoporosis", "copd", "gerd",
+            "glaucoma", "hiv", "tuberculosis", "hepatitis", "anemia"
+        ]
         
         conditions = self.condition_model.find_all()
+        logger.info(f"Chronic vs Acute: Classifying {len(conditions)} conditions.")
         patients = {}
         for p in self.patient_model.find_all():
             patients[str(p["_id"])] = p
@@ -270,12 +288,11 @@ class AnalyticsService:
         data = {} # (Type, AgeGroup) -> Count
         
         for c in conditions:
-            name = c.get("code", {}).get("text", "")
-            c_type = "Other"
-            if any(chronic in name for chronic in CHRONIC_LIST):
+            name = c.get("code", {}).get("text", "").lower()
+            # Default to Acute, check if it matches Chronic indicators
+            c_type = "Acute"
+            if any(indicator in name for indicator in CHRONIC_INDICATORS):
                 c_type = "Chronic"
-            elif any(acute in name for acute in ACUTE_LIST):
-                c_type = "Acute"
                 
             subject_ref = c.get("subject", {}).get("reference", "")
             pid = subject_ref.split("/")[-1]
@@ -322,4 +339,6 @@ class AnalyticsService:
             key = (category, age_group)
             results[key] = results.get(key, 0) + 1
             
-        return [{"category": cat, "age_group": ag, "count": c} for (cat, ag), c in results.items()]
+        res = [{"category": cat, "age_group": ag, "count": c} for (cat, ag), c in results.items()]
+        logger.info(f"Comorbidity Analytics complete.")
+        return res

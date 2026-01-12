@@ -6,6 +6,7 @@ from services.recommendation_service import get_all_plans, recommend_plan
 from services.risk_service import calculate_risk_score
 from utils.validation import validate_fhir_resource
 from data.scripts import conditions_pool, observations_pool, medications_pool
+from utils.logger import logger
 
 api = Blueprint('api', __name__)
 # ... (existing model initializations)
@@ -41,6 +42,7 @@ def login():
     
     user = user_model.find_by_username(username)
     if user and user.get("password") == password:
+        logger.info(f"User logged in: {username}")
         token = create_access_token(identity=username, additional_claims={"role": user.get("role")})
         return jsonify({
             "token": token,
@@ -50,6 +52,7 @@ def login():
             "patientId": user.get("patientId")
         })
         
+    logger.warning(f"Failed login attempt for username: {username}")
     return jsonify({"error": "Invalid credentials"}), 401
 
 @api.route('/auth/register', methods=['POST'])
@@ -79,6 +82,7 @@ def register():
     patient_id = patient_model.create(validated_patient)
     patient_id_str = str(patient_id)
     
+    logger.info(f"Registered new patient: {username} (ID: {patient_id_str})")
     from utils.validation import sanitize_text
 
     # 1. Conditions (Multi-select)
@@ -279,16 +283,28 @@ def patient_resource():
 @api.route('/Condition', methods=['GET', 'POST', 'PUT'])
 @jwt_required()
 def condition_resource():
+    if request.method == 'GET' and request.args.get('patient'):
+        # For dashboard view, return only active conditions
+        items = condition_model.find_by_patient(request.args.get('patient'), status="Active")
+        return jsonify([format_id(i) for i in items])
     return handle_crud(condition_model, "Condition")
 
 @api.route('/Observation', methods=['GET', 'POST', 'PUT'])
 @jwt_required()
 def observation_resource():
+    if request.method == 'GET' and request.args.get('patient'):
+        # For dashboard view, return only final observations
+        items = observation_model.find_by_patient(request.args.get('patient'), status="final")
+        return jsonify([format_id(i) for i in items])
     return handle_crud(observation_model, "Observation")
 
 @api.route('/Medication', methods=['GET', 'POST', 'PUT'])
 @jwt_required()
 def medication_resource():
+    if request.method == 'GET' and request.args.get('patient'):
+        # For dashboard view, return only active medications
+        items = medication_model.find_by_patient(request.args.get('patient'), status="active")
+        return jsonify([format_id(i) for i in items])
     return handle_crud(medication_model, "MedicationRequest")
 
 # --- History Endpoints ---
@@ -336,20 +352,17 @@ def update_clinical_data(patient_id):
     new_vitals = data.get('vitals', {})
     new_medications = data.get('medications', [])
     
-    # 1. Inactivate existing entries (FHIR style: markers for history)
+    logger.info(f"Processing clinical update for patient {patient_id}: {len(new_conditions)} conditions, {len(new_vitals)} vitals, {len(new_medications)} meds")
     condition_model.update_many({"subject.reference": f"Patient/{patient_id}"}, {"clinicalStatus.text": "Inactive"})
     observation_model.update_many({"subject.reference": f"Patient/{patient_id}"}, {"status": "preliminary"}) # mark old as preliminary
+    medication_model.update_many({"subject.reference": f"Patient/{patient_id}"}, {"status": "cancelled"}) # mark old medication as cancelled
 
     from utils.validation import sanitize_text
     
     # 2. Add New Conditions
-    ALLOWED_CONDITIONS = [
-        "Hypertension", "Diabetes mellitus", "Asthma", "Acute upper respiratory infection",
-        "Fever", "Cough", "Headache", "Coronary heart disease"
-    ]
     for c_text in new_conditions:
         clean_text = sanitize_text(c_text)
-        if clean_text and clean_text in ALLOWED_CONDITIONS:
+        if clean_text and clean_text in conditions_pool:
             c_data = {
                 "resourceType": "Condition",
                 "clinicalStatus": {"text": "Active"},
@@ -412,6 +425,21 @@ def update_clinical_data(patient_id):
             }
             val_o, err = validate_fhir_resource("Observation", o_data)
             if not err: observation_model.create(val_o)
+
+    # 3.8 Add New Medications
+    for m_text in new_medications:
+        clean_text = sanitize_text(m_text)
+        if clean_text:
+            m_data = {
+                "resourceType": "MedicationRequest",
+                "status": "active",
+                "intent": "order",
+                "medication": {"concept": {"text": clean_text}},
+                "subject": {"reference": f"Patient/{patient_id}"}
+            }
+            val_m, err = validate_fhir_resource("MedicationRequest", m_data)
+            if not err: 
+                medication_model.create(val_m)
 
     # 4. Create New Clinical Version Snapshot
     latest = version_model.get_latest(patient_id)
