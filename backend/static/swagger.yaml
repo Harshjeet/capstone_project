@@ -1,0 +1,251 @@
+openapi: 3.0.0
+info:
+  title: HealthAI API Documentation
+  description: API documentation for the HealthAI platform, including Auth, FHIR resources, Admin management, and Health Analytics.
+  version: 1.0.0
+servers:
+  - url: http://localhost:5000/api
+    description: Local development server
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/login:
+    post:
+      summary: User Login
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  role:
+                    type: string
+        "401":
+          description: Invalid credentials
+
+  /auth/register:
+    post:
+      summary: Register Patient
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Comprehensive health and user registration data
+      responses:
+        "201":
+          description: User and Patient created
+
+  /registration-data:
+    get:
+      summary: Get Registration Pools
+      tags: [Data]
+      security: []
+      description: Returns lists of conditions, medications, and vitals for the registration form.
+      responses:
+        "200":
+          description: List of pools
+
+  /Patient:
+    get:
+      summary: List Patients
+      tags: [FHIR]
+      responses:
+        "200":
+          description: List of Patient resources
+    post:
+      summary: Create Patient
+      tags: [FHIR]
+      responses:
+        "201":
+          description: Patient created
+
+  /Condition:
+    get:
+      summary: List Conditions
+      tags: [FHIR]
+    post:
+      summary: Create Condition
+      tags: [FHIR]
+
+  /admin/patients:
+    get:
+      summary: List Patients (Paginated)
+      tags: [Admin]
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 15
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Paginated list of patients
+
+  /admin/users:
+    get:
+      summary: List Users (Paginated)
+      tags: [Admin]
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 15
+      responses:
+        "200":
+          description: Paginated list of users
+  /Patient/{id}/clinical-update:
+    post:
+      summary: Update Patient Clinical Data
+      tags: [Clinical]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                vitals:
+                  type: object
+      responses:
+        "200":
+          description: Version snapshot created
+
+  /Patient/{id}/clinical-history:
+    get:
+      summary: Get Clinical History Snapshots
+      tags: [Clinical]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of health versions
+
+  /admin/plans:
+    get:
+      summary: List Insurance Plans
+      tags: [Admin]
+    post:
+      summary: Create Insurance Plan
+      tags: [Admin]
+
+  /admin/stats/risk-distribution:
+    get:
+      summary: Population Risk Distribution
+      tags: [Admin]
+
+  /admin/patients/{id}/fhir:
+    get:
+      summary: Get Patient FHIR Bundle (Admin View)
+      tags: [Admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Complete FHIR Bundle
+
+  /analytics/population/medications:
+    get:
+      summary: Medication Usage Analytics
+      tags: [Analytics]
+
+  /analytics/population/vitals:
+    get:
+      summary: Vital Signs Analytics
+      tags: [Analytics]
+
+  /analytics/population/disease-distribution:
+    get:
+      summary: Population Disease Distribution
+      tags: [Analytics]
+      responses:
+        "200":
+          description: Chart data for condition prevalence
+
+  /Patient/{id}/risk:
+    get:
+      summary: Get Patient Risk Score
+      tags: [Analytics]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current risk score and label
+
+  /recommendation/{id}:
+    post:
+      summary: Generate Insurance Recommendation
+      tags: [Clinical]
+      description: Requires patient consent. Uses similarity-based cohort analysis.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Recommended plan with explanation text
