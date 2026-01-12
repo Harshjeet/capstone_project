@@ -10,18 +10,26 @@ const PatientManager = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState('table'); // 'table' or 'grid'
     const [patientDetails, setPatientDetails] = useState({});
+    const [currentPage, setCurrentPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalPatients, setTotalPatients] = useState(0);
 
     useEffect(() => {
-        fetchPatients();
-    }, []);
+        fetchPatients(currentPage, searchTerm);
+    }, [currentPage, searchTerm]);
 
-    const fetchPatients = async () => {
+    const fetchPatients = async (page = 1, search = '') => {
         try {
-            const res = await axios.get('/admin/patients');
-            setPatients(res.data);
-            // Fetch additional details for each patient
-            res.data.forEach(patient => {
-                fetchPatientDetails(patient.id);
+            const res = await axios.get(`/admin/patients?page=${page}&limit=15&search=${search}`);
+            setPatients(res.data.data);
+            setTotalPages(res.data.total_pages);
+            setTotalPatients(res.data.total);
+
+            // Fetch additional details only for the current page
+            res.data.data.forEach(patient => {
+                if (!patientDetails[patient.id]) {
+                    fetchPatientDetails(patient.id);
+                }
             });
         } catch (err) {
             console.error("Failed to fetch patients", err);
@@ -107,10 +115,8 @@ const PatientManager = () => {
 
 
 
-    const filteredPatients = patients.filter(p =>
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.id.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    // Sorting/filtering is now handled by backend pagination
+    const filteredPatients = patients;
 
     return (
         <div className="dashboard-container">
@@ -132,7 +138,7 @@ const PatientManager = () => {
                             backgroundColor: '#f1f5f9',
                             color: '#64748b'
                         }}>
-                            {patients.length} Total
+                            {totalPatients} Total
                         </span>
                     </div>
                     <div style={{ position: 'relative', width: '16rem' }}>
@@ -248,7 +254,7 @@ const PatientManager = () => {
                             return (
                                 <tr key={p.id}>
                                     <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)', padding: '0.75rem 1rem', borderBottom: '1px solid #e2e8f0' }}>
-                                        {(filteredPatients.indexOf(p) + 1).toString().padStart(2, '0')}
+                                        {((currentPage - 1) * 15 + patients.indexOf(p) + 1).toString().padStart(2, '0')}
                                     </td>
                                     <td style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #e2e8f0' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -410,6 +416,39 @@ const PatientManager = () => {
                         )}
                     </tbody>
                 </table>
+
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                    <div style={{
+                        padding: '1rem',
+                        display: 'flex',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        gap: '1rem',
+                        borderTop: '1px solid #e2e8f0',
+                        backgroundColor: '#f8fafc'
+                    }}>
+                        <button
+                            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                            disabled={currentPage === 1}
+                            className="btn btn-outline"
+                            style={{ padding: '0.5rem 1rem', fontSize: '0.875rem' }}
+                        >
+                            Previous
+                        </button>
+                        <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                            Page <span style={{ fontWeight: '600', color: 'var(--text)' }}>{currentPage}</span> of {totalPages}
+                        </div>
+                        <button
+                            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                            disabled={currentPage === totalPages}
+                            className="btn btn-outline"
+                            style={{ padding: '0.5rem 1rem', fontSize: '0.875rem' }}
+                        >
+                            Next
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Enhanced FHIR Viewer Modal */}

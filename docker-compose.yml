@@ -1,0 +1,32 @@
+services:
+  db:
+    image: mongo:latest
+    container_name: healthai-db
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongodb_data:/data/db
+
+  backend:
+    build: ./backend
+    container_name: healthai-backend
+    ports:
+      - "8080:5000"
+    environment:
+      - MONGO_URI=mongodb://db:27017/fhir_db
+      - JWT_SECRET_KEY=super-secret-key
+    depends_on:
+      - db
+
+  frontend:
+    build: ./frontend
+    container_name: healthai-frontend
+    ports:
+      - "3000:5173"
+    environment:
+      - VITE_API_TARGET=http://backend:5000
+    depends_on:
+      - backend
+
+volumes:
+  mongodb_data:
