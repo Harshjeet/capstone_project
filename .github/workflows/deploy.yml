@@ -55,7 +55,8 @@ jobs:
 
   docker-build:
     needs: [test-backend, build-frontend]
-    if: github.event_name == 'push'
+    # Only run on push to main AND if Docker secrets are configured
+    if: github.event_name == 'push' && github.repository_owner == 'Harshjeet' || vars.DOCKERHUB_USERNAME != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
