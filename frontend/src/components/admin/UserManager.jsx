@@ -9,20 +9,26 @@ const UserManager = () => {
     const [selectedFhir, setSelectedFhir] = useState(null);
     const [fhirModalOpen, setFhirModalOpen] = useState(false);
     const [fetchingFhir, setFetchingFhir] = useState(false);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalUsers, setTotalUsers] = useState(0);
 
     useEffect(() => {
-        const fetchUsers = async () => {
-            try {
-                const res = await axios.get('/admin/users');
-                setUsers(res.data);
-            } catch (error) {
-                console.error("Error fetching users:", error);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchUsers();
-    }, []);
+        fetchUsers(currentPage, searchTerm);
+    }, [currentPage, searchTerm]);
+
+    const fetchUsers = async (page = 1, search = '') => {
+        try {
+            const res = await axios.get(`/admin/users?page=${page}&limit=15&search=${search}`);
+            setUsers(res.data.data);
+            setTotalPages(res.data.total_pages);
+            setTotalUsers(res.data.total);
+        } catch (error) {
+            console.error("Error fetching users:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleDelete = async (userId, username) => {
         if (!window.confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) {
@@ -80,11 +86,8 @@ const UserManager = () => {
         }
     };
 
-    const filteredUsers = users.filter(user =>
-        user.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.role?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    // Filtering is now handled by backend pagination
+    const filteredUsers = users;
 
     if (loading) {
         return (
@@ -114,7 +117,7 @@ const UserManager = () => {
                             backgroundColor: '#f1f5f9',
                             color: '#64748b'
                         }}>
-                            {users.length} Total
+                            {totalUsers} Total
                         </span>
                     </div>
                     <div style={{ position: 'relative', width: '16rem' }}>
@@ -217,7 +220,7 @@ const UserManager = () => {
                         {filteredUsers.map((user, index) => (
                             <tr key={user.id}>
                                 <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)', padding: '0.75rem 1rem', borderBottom: '1px solid #e2e8f0' }}>
-                                    {(index + 1).toString().padStart(2, '0')}
+                                    {((currentPage - 1) * 15 + index + 1).toString().padStart(2, '0')}
                                 </td>
                                 <td style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #e2e8f0' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -325,6 +328,39 @@ const UserManager = () => {
                         )}
                     </tbody>
                 </table>
+
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                    <div style={{
+                        padding: '1rem',
+                        display: 'flex',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        gap: '1rem',
+                        borderTop: '1px solid #e2e8f0',
+                        backgroundColor: '#f8fafc'
+                    }}>
+                        <button
+                            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                            disabled={currentPage === 1}
+                            className="btn btn-outline"
+                            style={{ padding: '0.5rem 1rem', fontSize: '0.875rem' }}
+                        >
+                            Previous
+                        </button>
+                        <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                            Page <span style={{ fontWeight: '600', color: 'var(--text)' }}>{currentPage}</span> of {totalPages}
+                        </div>
+                        <button
+                            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                            disabled={currentPage === totalPages}
+                            className="btn btn-outline"
+                            style={{ padding: '0.5rem 1rem', fontSize: '0.875rem' }}
+                        >
+                            Next
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* FHIR Modal */}

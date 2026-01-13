@@ -105,12 +105,13 @@ const AdminAnalytics = () => {
     const caCounts = chronicAcute.reduce((acc, curr) => {
         acc[curr.type] = (acc[curr.type] || 0) + curr.count;
         return acc;
-    }, {});
+    }, { Chronic: 0, Acute: 0 });
+
     const chronicAcuteData = {
-        labels: Object.keys(caCounts),
+        labels: ['Chronic', 'Acute'],
         datasets: [{
-            data: Object.values(caCounts),
-            backgroundColor: ['#8B5CF6', '#10B981', '#6B7280'],
+            data: [caCounts.Chronic, caCounts.Acute],
+            backgroundColor: ['#8B5CF6', '#10B981'],
             borderWidth: 0
         }]
     };
